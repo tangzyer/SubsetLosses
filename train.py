@@ -13,10 +13,10 @@ from logentropy import LogEntropyLoss
 
 
 
-epochs = 2000
+epochs = 128
 
 lr = 0.1
-label = "l1loss_4classeswithMLP"
+label = "l1loss_4classeswithResnet"
 
 
 
@@ -98,7 +98,10 @@ def log(tag, train_loss, true_loss, val_acc, e_losses, c_losses):
 def main():
     use_cuda = torch.cuda.is_available()
     print("cuda:",use_cuda)
-    model = mlp()
+    #model = mlp()
+    model = torchvision.models.resnet18(pretrained=True)
+    fc_in = model.fc.in_features  # 获取全连接层的输入特征维度
+    model.fc =torch.nn.Linear(fc_in, 10)
     if use_cuda:
         model = model.cuda()
     train_loader, watch_loader, valid_loader = load_data()
@@ -107,7 +110,7 @@ def main():
     watch_criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
     # optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100], gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[80], gamma=0.1)
     train_losses = []
     true_losses = []
     valid_accs = []
