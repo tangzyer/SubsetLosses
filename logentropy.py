@@ -20,3 +20,15 @@ class LogEntropyLoss(Module):
         loss = -1 * loss
         return(loss.mean())
 
+class MAELoss(Module):
+
+    def __init__(self):
+        super(MAELoss, self).__init__()
+
+    def forward(self, logits, target):
+        logits = logits.contiguous()  # [NHW, C]
+        logits = F.softmax(logits, 1)
+        mask = target.bool()
+        logits = logits.masked_fill(~mask, 0)
+        loss = 1-torch.sum(logits, dim=1)
+        return loss.mean()
