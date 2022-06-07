@@ -9,14 +9,13 @@ import numpy as np
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
 import pandas as pd
-from logentropy import LogEntropyLoss
+from logentropy import MAELoss
 
 
 
-epochs = 128
-
-lr = 0.1
-label = "l1loss_4classeswithResnet"
+epochs = 4096
+lr = 0.01
+label = "l1loss_10classeswithresnet"
 
 
 
@@ -45,11 +44,15 @@ def watch(watch_loader, model, watch_criterion, use_cuda, epoch):
     with torch.no_grad():
         for data in watch_loader:
             val_inputs, label = data
+            bs = len(label)
+            label = label.unsqueeze(-1)
+            one_hot_label = torch.zeros(bs, 10).scatter_(1, label, 1)
             if use_cuda:
                 val_inputs = Variable(val_inputs).cuda()
                 label = Variable(label).cuda()
+                one_hot_label = Variable(one_hot_label).cuda()
             val_outputs = model(val_inputs)
-            loss = watch_criterion(val_outputs, label)
+            loss = watch_criterion(val_outputs, one_hot_label)
             print_loss = loss.data.item()
             sum_loss += print_loss
         print('Epoch:', epoch, 'True Loss:', sum_loss)
@@ -105,12 +108,12 @@ def main():
     if use_cuda:
         model = model.cuda()
     train_loader, watch_loader, valid_loader = load_data()
-    train_criterion = torch.nn.L1Loss()
+    train_criterion = MAELoss()
     #ce_loss = LogEntropyLoss()
-    watch_criterion = torch.nn.CrossEntropyLoss()
+    watch_criterion = MAELoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
     # optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[80], gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100], gamma=0.1)
     train_losses = []
     true_losses = []
     valid_accs = []
@@ -123,7 +126,7 @@ def main():
         valid_accs.append(val_acc)
         # if epoch % 200 == 1:
         #     log(str(epoch), train_losses, true_losses, valid_accs, entropy_losses, cons_losses)
-        scheduler.step()
+        #scheduler.step()
     #log(str(epoch), train_losses, true_losses, valid_accs, entropy_losses, cons_losses)
     plot_curve(epochs, train_losses, true_losses, valid_accs, label)
 
