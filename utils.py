@@ -9,9 +9,10 @@ from torchvision import datasets
 from subset import subset
 import torchvision.transforms as transforms
 import cifar10 as dataset
+from random import choice
 
 
-batch_size = 128
+batch_size = 100
 augment_K = 4
 
 transform_train = transforms.Compose([
@@ -74,7 +75,7 @@ class MyDatasetWithAugmentation(Data.Dataset):
     def __len__(self):
         return len(self.data)
 
-def load_data(classes=[0,1,2,3]):
+def load_data(classes=[0,1,2,3,4,5,6,7,8,9]):
     sub = subset(10)
 
     train_data = datasets.CIFAR10(root='.', train=True, download=True)
@@ -109,17 +110,26 @@ def load_data(classes=[0,1,2,3]):
     X_validation = []
     validation_labels = []
     true_labels = []
+    psuedo_labels =[]
     X_train = []
     X_test = []
+    monitor = [0,0,0,0]
 
 
     for index, y in enumerate(train_y):
         if y in classes:
             #size_of_subset, subset_y, obfuscated_y = sub.index_to_stack_obfuscated(y)
-            multi_hot_subset = sub.index_to_limited_subset(y, max_class=4)
+            sub_label, multi_hot_subset = sub.index_to_limited_subset(y, max_class=10)
             X_train.append(train_X[index])
             train_labels.append(multi_hot_subset)
             true_labels.append(y)
+            psuedo_labels.append(choice(sub_label))
+            # if y == 0:
+            #     for i in sub_label:
+            #         monitor[i] += 1
+    
+    #print(monitor)
+
 
     for index, y in enumerate(test_y):
         if y in classes:
@@ -138,6 +148,8 @@ def load_data(classes=[0,1,2,3]):
     input = np.array(X_train).astype(np.float32)
     label = np.array(train_labels).astype(np.int64)
     true_labels = np.array(true_labels).astype(np.long)
+    psuedo_labels = np.array(psuedo_labels).astype(np.long)
+    np.savez('./data/train.npz', train_x=input, subset_y=label, true_y=true_labels, pseudo_y=psuedo_labels)
     torch_dataset = MyDataset(input, label, transform_train)
     #torch_dataset_withaug = MyDatasetWithAugmentation(input, label, transform_train, augment_K)
     watch_dataset = MyDataset(input, true_labels, transform_val)
@@ -148,7 +160,31 @@ def load_data(classes=[0,1,2,3]):
 
     input = np.array(X_validation).astype(np.float32)
     label = np.array(validation_labels).astype(np.long)
+    np.savez('./data/valid.npz', valid_x=input, valid_y=label)
     torch_dataset = MyDataset(input, label, transform_val)
     valid_loader = Data.DataLoader(torch_dataset, batch_size=batch_size, shuffle=True)
 
     return train_loader, watch_loader, valid_loader
+
+def load_data_from_npz(mode='subset'):
+    data_train = np.load('./data/train.npz')
+    input = data_train['train_x']
+    label = data_train['subset_y']
+    true_labels = data_train['true_y']
+    psuedo_labels = data_train['pseudo_y']
+    torch_dataset = MyDataset(input, label, transform_train)
+    watch_dataset = MyDataset(input, true_labels, transform_val)
+    pseudo_dataset = MyDataset(input, psuedo_labels, transform_train)
+    train_loader = Data.DataLoader(torch_dataset, batch_size=batch_size, shuffle=True)
+    # else:
+    #     train_loader = Data.DataLoader(pseudo_dataset, batch_size=batch_size, shuffle=True)
+    psuedo_loader = Data.DataLoader(pseudo_dataset, batch_size=batch_size, shuffle=True)
+    watch_loader = Data.DataLoader(watch_dataset, batch_size=batch_size, shuffle=False)
+    
+    data_valid = np.load('./data/valid.npz')
+    input = data_valid['valid_x']
+    label = data_valid['valid_y']
+    torch_dataset = MyDataset(input, label, transform_val)
+    valid_loader = Data.DataLoader(torch_dataset, batch_size=batch_size, shuffle=True)
+
+    return train_loader, watch_loader, psuedo_loader, valid_loader
