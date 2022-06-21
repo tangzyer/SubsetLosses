@@ -15,9 +15,10 @@ from logentropy import LogEntropyLoss, MAELoss
 
 epochs = 150
 lr = 0.01
-launchTimeStamp = "18_07_06_15"
+launchTimeStamp = "10_53_06_21"
 label = "l1loss-10classes-card2"
 checkpoint = True
+use_cuda = torch.cuda.is_available()
 
 
 
@@ -73,40 +74,32 @@ def train(train_loader, model, optimizer, train_criterion, watch_criterion, use_
     return sum_loss, true_loss
 
 def train_pseodu(train_loader, model, optimizer, train_criterion, use_cuda, epoch):
-    total_correct = 0.0
-    total_num = 0.0
     sum_loss = 0.0
     l = len(train_loader)
     for data in train_loader:
         model.train()
-        img, label = data
-        bs = len(label)
-        #label = label.unsqueeze(-1)
-        #label = label.squeeze(-1)
-        #one_hot_label = torch.zeros(bs, 10).scatter_(1, label, 1)
+        img, (_, label) = data
         if use_cuda:
             img = Variable(img).cuda()
             label = Variable(label).cuda()
-            #one_hot_label = Variable(one_hot_label).cuda()
         else:
             img = Variable(img)
             label = Variable(label)
-            #one_hot_label = Variable(one_hot_label)
         out = model(img)
-        pred = out.argmax(dim=1)
-        label_one = label.argmax(dim=1)
-        total_correct += torch.eq(pred,label_one).float().sum().item() #分别为是否相等，scalar tensor转换为float，求和，拿出值
-        total_num += label.size(0)
+        #pred = out.argmax(dim=1)
+        #label_one = label.argmax(dim=1)
+        #total_correct += torch.eq(pred,label_one).float().sum().item() #分别为是否相等，scalar tensor转换为float，求和，拿出值
+       # total_num += label.size(0)
         #loss = train_criterion(out, one_hot_label)
+        label = F.one_hot(label, 10)
         loss = train_criterion(out, label)
         print_loss = loss.data.item()
         sum_loss += print_loss/l
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-    acc = total_correct/total_num
+    #acc = total_correct/total_num
     print('Epoch', epoch, 'Pseudo Train Loss:', sum_loss)
-    print('Epoch', epoch, 'Train Acc:', acc)
     return sum_loss
 
 
@@ -132,7 +125,7 @@ def watch(watch_loader, model, watch_criterion, use_cuda, epoch, l=None):
             print('Epoch:', epoch, 'Pseudo True Loss:', sum_loss)
     return sum_loss
 
-def valid(valid_loader, model, use_cuda, epoch):
+def valid(valid_loader, model, criterion, use_cuda, epoch):
     total_correct = 0.0
     total_num = 0.0
     total_loss = 0.0
@@ -144,8 +137,9 @@ def valid(valid_loader, model, use_cuda, epoch):
             if use_cuda:
                 val_inputs = Variable(val_inputs).cuda()
                 label = Variable(label).cuda()
+            one_hot_label = F.one_hot(label, 10)
             val_outputs = model(val_inputs)
-            loss = torch.nn.CrossEntropyLoss().__call__(val_outputs, label)
+            loss = criterion.__call__(val_outputs, one_hot_label)
             loss = loss.data.item()
             total_loss += loss/l
             pred = val_outputs.argmax(dim=1)
@@ -201,11 +195,43 @@ def log_dict(tag, data):
     df.to_csv('./logs/'+tag+'.csv')
 
 
+def test_true_label(model, true_loader, valid_loader, train_criterion, valid_criterion,  optimizer, scheduler=None):
+    train_losses = []
+    val_losses = []
+    val_accs = []
+    for epoch in range(epochs):
+        train_loss = train_pseodu(true_loader, model, optimizer, train_criterion, use_cuda, epoch)
+        val_acc, val_loss = valid(valid_loader, model, valid_criterion, use_cuda, epoch)
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
+        val_accs.append(val_acc)
+        if scheduler is not None:
+            scheduler.step()
+    data = {'Train Loss':train_losses, 'Val Loss':val_losses, 'Val Acc':val_accs}
+    log_dict('accurateLabell1loss'+launchTimeStamp, data)     
+
+
+def test_subset_label(watch_loader, valid_loader, model, optimizer, train_criterion, watch_criterion, scheduler=None):
+    train_losses = []
+    true_losses = []
+    valid_losses = []
+    valid_accs = []
+    for epoch in range(epochs):
+        train_loss, true_loss = train(watch_loader, model, optimizer, train_criterion, watch_criterion, use_cuda, epoch)
+        train_losses.append(train_loss)
+        true_losses.append(true_loss)
+        val_acc, val_loss = valid(valid_loader, model, use_cuda, epoch)
+        valid_accs.append(val_acc)
+        valid_losses.append(val_loss)
+        if scheduler is not None:
+            scheduler.step()
+    data = {'Train Loss':train_losses, 'True Loss':true_losses, 'Val Loss':valid_losses, 'Val Acc':valid_accs}
+    log_dict(launchTimeStamp, data)     
+
+
 def main():
-    use_cuda = torch.cuda.is_available()
+    
     print("cuda:",use_cuda)
-    #model = mlp()
-    #checkpoint = True
     model = torchvision.models.resnet18(pretrained=True)
     fc_in = model.fc.in_features  # 获取全连接层的输入特征维度
     model.fc =torch.nn.Linear(fc_in, 10)
@@ -216,50 +242,16 @@ def main():
         model = model.cuda()
         model_psuedo = model_psuedo.cuda()
     watch_loader, valid_loader = load_data_custom()
-    #train_loader, watch_loader, psuedo_loader, valid_loader = load_data_from_npz()
-    train_criterion = LogEntropyLoss()
+    #train_criterion = torch.nn.CrossEntropyLoss()
+    train_criterion = MAELoss()
+    valid_criterion = MAELoss()
     watch_criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
     #model, optimizer = load_checkpoint(model, 'newmodels/m-22_15_06_13-123.0882.pth.tar',optimizer)
-   
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[60, 90, 120], gamma=0.1)
-    #scheduler_p = torch.optim.lr_scheduler.MultiStepLR(optimizer_p, milestones=[300, 1000, 3000], gamma=0.1)
-    train_losses = []
-    true_losses = []
-    # pseudo_losses = []
-    # pseudo_true_losses = []
-    valid_losses = []
-    valid_accs = []
-    for epoch in range(epochs):
-        train_loss, true_loss = train(watch_loader, model, optimizer, train_criterion, watch_criterion, use_cuda, epoch)
-        # train_losses.append(train_loss)
-        #pseudo_train_loss = train_pseodu(psuedo_loader, model_psuedo, optimizer_p, train_criterion, use_cuda, epoch)
-        #pseudo_losses.append(0)
-        #true_loss = watch(watch_loader, model, watch_criterion, use_cuda, epoch)
-        #pseudo_true_loss = watch(watch_loader, model_psuedo, watch_criterion, use_cuda, epoch, l='p')
-        train_losses.append(train_loss)
-        true_losses.append(true_loss)
-        val_acc, val_loss = valid(valid_loader, model, use_cuda, epoch)
-        valid_accs.append(val_acc)
-        valid_losses.append(val_loss)
-        scheduler.step()
-        # if epoch % 200 == 1:
-        #     log(str(epoch), train_losses, true_losses, valid_accs, entropy_losses, cons_losses)
-        #scheduler.step()
-        #scheduler_p.step()
-        # if epoch % 500 == 499:
-        #     lossMIN = true_loss
-        #     torch.save({'epoch': epoch + 1, 'state_dict': model.state_dict(), 
-        #                     'optimizer': optimizer.state_dict()},
-        #                    './newmodels' + '/m-' + launchTimeStamp + '-' + str("%.4f" % lossMIN) + '.pth.tar')
-            # lossMIN = pseudo_train_loss
-            # torch.save({'epoch': epoch + 1, 'state_dict': model_psuedo.state_dict(), 
-            #                 'optimizer': optimizer_p.state_dict()},
-            #                './newmodels' + '/p-' + launchTimeStamp + '-' + str("%.4f" % lossMIN) + '.pth.tar')
-    data = {'Train Loss':train_losses, 'True Loss':true_losses, 'Val Loss':valid_losses, 'Val Acc':valid_accs}
-    log_dict(launchTimeStamp, data)      
-    #log(str(epoch), train_losses, true_losses, valid_accs, entropy_losses, cons_losses)
-    #plot_curve(epochs, train_losses, pseudo_losses, true_losses, pseudo_true_losses, valid_accs, label)
+    test_true_label(model, watch_loader, valid_loader, train_criterion, valid_criterion, optimizer, scheduler)
+
+
 
 if __name__ == '__main__':
 
