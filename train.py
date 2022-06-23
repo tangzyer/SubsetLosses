@@ -13,37 +13,17 @@ from logentropy import LogEntropyLoss, MAELoss
 
 
 
-epochs = 150
+epochs = 500
 lr = 0.01
-launchTimeStamp = "10_53_06_21"
+launchTimeStamp = "23_19_06_22"
 label = "l1loss-10classes-card2"
 checkpoint = True
 use_cuda = torch.cuda.is_available()
 
 
 
-def train(train_loader, model, optimizer, train_criterion, use_cuda, epoch):
-    sum_loss = 0.0
-    for data in train_loader:
-        img, label = data
-        if use_cuda:
-            img = Variable(img).cuda()
-            label = Variable(label).cuda()
-        else:
-            img = Variable(img)
-            label = Variable(label)
-        out = model(img)
-        loss = train_criterion(out, label)
-        print_loss = loss.data.item()
-        sum_loss += print_loss
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-    print('Epoch', epoch, 'Train Loss:', sum_loss)
-    return sum_loss
-
-
 def train(train_loader, model, optimizer, train_criterion, watch_criterion, use_cuda, epoch):
+    model.train()
     sum_loss = 0.0
     true_loss = 0.0
     l = len(train_loader)
@@ -65,10 +45,10 @@ def train(train_loader, model, optimizer, train_criterion, watch_criterion, use_
         loss.backward()
         optimizer.step()
         with torch.no_grad():
-            loss = watch_criterion(out, true_label)
+            true_label = F.one_hot(true_label, 10)
+            loss = watch_criterion.__call__(out, true_label)
             print_loss = loss.data.item()
             true_loss += print_loss/l
-
     print('Epoch', epoch, 'Train Loss:', sum_loss)
     print('Epoch', epoch, 'True Loss:', true_loss)
     return sum_loss, true_loss
@@ -211,7 +191,7 @@ def test_true_label(model, true_loader, valid_loader, train_criterion, valid_cri
     log_dict('accurateLabell1loss'+launchTimeStamp, data)     
 
 
-def test_subset_label(watch_loader, valid_loader, model, optimizer, train_criterion, watch_criterion, scheduler=None):
+def test_subset_label(model, watch_loader, valid_loader, train_criterion, watch_criterion, valid_criterion, optimizer, scheduler=None):
     train_losses = []
     true_losses = []
     valid_losses = []
@@ -220,13 +200,13 @@ def test_subset_label(watch_loader, valid_loader, model, optimizer, train_criter
         train_loss, true_loss = train(watch_loader, model, optimizer, train_criterion, watch_criterion, use_cuda, epoch)
         train_losses.append(train_loss)
         true_losses.append(true_loss)
-        val_acc, val_loss = valid(valid_loader, model, use_cuda, epoch)
+        val_acc, val_loss = valid(valid_loader, model, valid_criterion, use_cuda, epoch)
         valid_accs.append(val_acc)
         valid_losses.append(val_loss)
         if scheduler is not None:
             scheduler.step()
     data = {'Train Loss':train_losses, 'True Loss':true_losses, 'Val Loss':valid_losses, 'Val Acc':valid_accs}
-    log_dict(launchTimeStamp, data)     
+    log_dict('l1loss'+launchTimeStamp, data)     
 
 
 def main():
@@ -245,11 +225,12 @@ def main():
     #train_criterion = torch.nn.CrossEntropyLoss()
     train_criterion = MAELoss()
     valid_criterion = MAELoss()
-    watch_criterion = torch.nn.CrossEntropyLoss()
+    #watch_criterion = MAELoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
     #model, optimizer = load_checkpoint(model, 'newmodels/m-22_15_06_13-123.0882.pth.tar',optimizer)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[60, 90, 120], gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[40], gamma=0.1)
     test_true_label(model, watch_loader, valid_loader, train_criterion, valid_criterion, optimizer, scheduler)
+    #test_subset_label(model, watch_loader, valid_loader, train_criterion, watch_criterion, valid_criterion, optimizer, scheduler)
 
 
 

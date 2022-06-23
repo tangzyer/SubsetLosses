@@ -40,11 +40,14 @@ sub = subset(10)
 class ToSubset(object):
     def __init__(self, mode=None):
         self.mode = mode
+        self.sub = {}
     
 
-    def __call__(self, y):
-        subset_y = sub.index_to_limited_subset(y)[1]
-        return torch.from_numpy(np.array(subset_y))
+    def __call__(self, index, y):
+        if index not in self.sub.keys():
+            self.sub[index] = sub.index_to_limited_subset(y)[1]
+        return torch.from_numpy(np.array(self.sub[index]))
+
 
 transform_targets = ToSubset()
 
